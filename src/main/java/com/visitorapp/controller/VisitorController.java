@@ -115,9 +115,25 @@ public class VisitorController {
         return ResponseEntity.ok(visitorService.plantAdminCheckOut(model));
     }
 
+    @PostMapping("/security-checkin")
+    public ResponseEntity<VisitorManagementViewModel> securityCheckIn(@RequestBody VisitorManagementViewModel model) {
+        return ResponseEntity.ok(visitorService.plantAdminCheckIn(model));
+    }
+
+    @PostMapping("/security-checkout")
+    public ResponseEntity<VisitorManagementViewModel> securityCheckOut(@RequestBody VisitorManagementViewModel model) {
+        return ResponseEntity.ok(visitorService.plantAdminCheckOut(model));
+    }
+
     @PostMapping("/checkout")
     public ResponseEntity<VisitorManagementViewModel> checkOut(@RequestBody VisitorManagementViewModel model) {
         return ResponseEntity.ok(visitorService.checkOut(model));
+    }
+
+    @PostMapping("/get-by-mobile")
+    public ResponseEntity<VisitorManagementViewModel> getVisitorByMobile(@RequestBody Map<String, String> body) {
+        String mobile = body.getOrDefault("Mobile", "");
+        return ResponseEntity.ok(visitorService.getVisitorByMobile(mobile));
     }
 
     @PostMapping("/get-by-id")

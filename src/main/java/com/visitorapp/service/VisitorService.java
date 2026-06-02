@@ -155,6 +155,20 @@ public class VisitorService {
         });
     }
 
+    public VisitorManagementViewModel getVisitorByMobile(String mobile) {
+        VisitorManagementViewModel result = new VisitorManagementViewModel();
+        if (mobile == null || mobile.trim().isEmpty()) {
+            result.setMsg("Mobile number is required");
+            return result;
+        }
+        VisitorManagement vm = visitorRepo.findTopByMobileAndIsDeletedFalseOrderByCreatedDateDesc(mobile.trim());
+        if (vm == null) {
+            result.setMsg("No visitor found with this mobile number");
+            return result;
+        }
+        return toViewModel(vm);
+    }
+
     public List<VisitorManagementViewModel> getVisitorsByEmployeeAndPlant(Integer empId, Integer plantId) {
         if (plantId == null) return getVisitorsByEmployee(empId);
         return visitorRepo.findByPlantIdAndCreatedBy(plantId, empId).stream()
@@ -490,15 +504,29 @@ public class VisitorService {
 
         try {
             String empName = "";
+            String hostCompany = "";
             if (vm.getWhomToMeet() != null) {
                 Optional<EmployeeMaster> empOpt = employeeRepo.findById(vm.getWhomToMeet());
                 if (empOpt.isPresent()) {
-                    empName = (empOpt.get().getFirstName() != null ? empOpt.get().getFirstName() : "")
-                        + (empOpt.get().getLastName() != null ? " " + empOpt.get().getLastName() : "");
+                    EmployeeMaster host = empOpt.get();
+                    empName = (host.getFirstName() != null ? host.getFirstName() : "")
+                        + (host.getLastName() != null ? " " + host.getLastName() : "");
+                    // Get host company name
+                    if (host.getCompId() != null) {
+                        Optional<CompanyMaster> compOpt = companyRepo.findById(host.getCompId());
+                        if (compOpt.isPresent()) {
+                            hostCompany = compOpt.get().getCompany() != null ? compOpt.get().getCompany() : "";
+                        }
+                    }
                     // Send approval request notification to the host
                     notificationService.createNotification(vm.getWhomToMeet(), "Visit Approval Request",
                         vm.getName() + " is requesting to meet you. Please approve or reject the visit.",
                         "check-circle", vm.getVisitId());
+                    // Send approval request email to the host
+                    String hostEmail = host.getEmailId();
+                    if (hostEmail != null && !hostEmail.isEmpty() && vm.getName() != null) {
+                        emailService.sendApprovalRequestEmail(hostEmail, vm.getName(), hostCompany, vm.getVisitId().toString());
+                    }
                 }
             }
         } catch (Exception e) {
@@ -693,12 +721,10 @@ public class VisitorService {
                     }
                 }
             }
-            // Also notify the contact person (WhomToMeet) for direct check-ins
-            if (Boolean.TRUE.equals(vm.getDirectCheckIn()) && vm.getWhomToMeet() != null
-                && !vm.getWhomToMeet().equals(vm.getCreatedBy()) && vm.getName() != null) {
+            // Notify the host (WhomToMeet) if different from creator
+            if (vm.getWhomToMeet() != null && !vm.getWhomToMeet().equals(vm.getCreatedBy()) && vm.getName() != null) {
                 notificationService.createNotification(vm.getWhomToMeet(), "Visitor Checked In",
                     vm.getName() + " has checked in and is ready to meet you.", "checkin", vm.getVisitId());
-                // Also send email to contact person
                 Optional<EmployeeMaster> contactOpt = employeeRepo.findById(vm.getWhomToMeet());
                 if (contactOpt.isPresent()) {
                     String contactEmail = contactOpt.get().getEmailId();
@@ -811,6 +837,18 @@ public class VisitorService {
                 notificationService.createNotification(vm.getCreatedBy(), "Visitor Checked In",
                     vm.getName() + " has checked in.", "checkin", vm.getVisitId());
             }
+            // Notify the host (WhomToMeet) if different from creator
+            if (vm.getWhomToMeet() != null && !vm.getWhomToMeet().equals(vm.getCreatedBy()) && vm.getName() != null) {
+                notificationService.createNotification(vm.getWhomToMeet(), "Visitor Checked In",
+                    vm.getName() + " has checked in and is ready to meet you.", "checkin", vm.getVisitId());
+                Optional<EmployeeMaster> contactOpt = employeeRepo.findById(vm.getWhomToMeet());
+                if (contactOpt.isPresent()) {
+                    String contactEmail = contactOpt.get().getEmailId();
+                    if (contactEmail != null && !contactEmail.isEmpty() && !contactEmail.equals(empEmail)) {
+                        emailService.sendCheckInEmailToEmp(contactEmail, vm.getName());
+                    }
+                }
+            }
         } catch (Exception e) {
             log.error("Error in visitor service operation", e);
         }
@@ -901,6 +939,18 @@ public class VisitorService {
                 notificationService.createNotification(vm.getCreatedBy(), "Visitor Checked Out",
                     vm.getName() + " has checked out.", "checkout", vm.getVisitId());
             }
+            // Notify the host (WhomToMeet) if different from creator
+            if (vm.getWhomToMeet() != null && !vm.getWhomToMeet().equals(vm.getCreatedBy()) && vm.getName() != null) {
+                notificationService.createNotification(vm.getWhomToMeet(), "Visitor Checked Out",
+                    vm.getName() + " has checked out.", "checkout", vm.getVisitId());
+                Optional<EmployeeMaster> contactOpt = employeeRepo.findById(vm.getWhomToMeet());
+                if (contactOpt.isPresent()) {
+                    String contactEmail = contactOpt.get().getEmailId();
+                    if (contactEmail != null && !contactEmail.isEmpty() && !contactEmail.equals(empEmail)) {
+                        emailService.sendCheckOutEmailToEmp(contactEmail, vm.getName());
+                    }
+                }
+            }
         } catch (Exception e) {
             log.error("Error in visitor service operation", e);
         }
@@ -981,72 +1031,36 @@ public class VisitorService {
         visitorRepo.save(vm);
 
         Optional<VisitorInviteHistory> histOpt = historyRepo.findFirstByVisitorIdAndIsDeletedOrderByLastUpdatedDateDesc(vm.getVisitId(), false);
-        if (histOpt.isPresent()) {
-        VisitorInviteHistory hist = histOpt.get();
-        hist.setCheckOut(true);
-        hist.setLastUpdatedDate(new Date());
-        historyRepo.save(hist);
 
-        try {
-            String empEmail = "";
-            String hostCompany = "";
-            String visitorEmail = vm.getpMail() != null ? vm.getpMail() : vm.getoMail();
-            String CheckoutCode = hist.getCheckoutCode() != null ? hist.getCheckoutCode() : "N/A";
-            if (vm.getCreatedBy() != null) {
-                Optional<EmployeeMaster> empOpt = employeeRepo.findById(vm.getCreatedBy());
-                if (empOpt.isPresent()) {
-                    EmployeeMaster emp = empOpt.get();
-                    empEmail = emp.getEmailId();
-                    if (emp.getCompId() != null) {
-                        Optional<CompanyMaster> compOpt = companyRepo.findById(emp.getCompId());
-                        if (compOpt.isPresent()) hostCompany = compOpt.get().getCompany() != null ? compOpt.get().getCompany() : "";
-                    }
-                }
-            }
-            if (empEmail != null && !empEmail.isEmpty() && vm.getName() != null) {
-                emailService.sendCheckOutEmailToEmp(empEmail, vm.getName());
-            }
-            if (visitorEmail != null && !visitorEmail.isEmpty() && vm.getName() != null) {
-                emailService.sendCheckOutEmailToVisitor(visitorEmail, vm.getName(), CheckoutCode, hostCompany);
-            }
-            if (vm.getCreatedBy() != null && vm.getName() != null) {
-                notificationService.createNotification(vm.getCreatedBy(), "Visitor Checked Out",
-                    vm.getName() + " has checked out.", "checkout", vm.getVisitId());
-            }
-        } catch (Exception e) {
-            log.error("Error in visitor service operation", e);
+        String CheckoutCode = "N/A";
+        if (histOpt.isPresent()) {
+            VisitorInviteHistory hist = histOpt.get();
+            hist.setCheckOut(true);
+            hist.setLastUpdatedDate(new Date());
+            historyRepo.save(hist);
+            CheckoutCode = hist.getCheckoutCode() != null ? hist.getCheckoutCode() : "N/A";
         }
 
-        VisitorManagementViewModel result = toViewModel(vm);
-        result.setMsg("Check-out successful");
-        return result;
-    }
-
         try {
             String empEmail = "";
             String hostCompany = "";
             String visitorEmail = vm.getpMail() != null ? vm.getpMail() : vm.getoMail();
-            String CheckoutCode = "";
-            if (histOpt.isPresent()) {
-                CheckoutCode = histOpt.get().getCheckoutCode() != null ? histOpt.get().getCheckoutCode() : "";
-            }
             if (vm.getCreatedBy() != null) {
                 Optional<EmployeeMaster> empOpt = employeeRepo.findById(vm.getCreatedBy());
                 if (empOpt.isPresent()) {
                     EmployeeMaster emp = empOpt.get();
                     empEmail = emp.getEmailId();
-                    if (CheckoutCode.isEmpty()) CheckoutCode = "N/A";
                     if (emp.getCompId() != null) {
                         Optional<CompanyMaster> compOpt = companyRepo.findById(emp.getCompId());
                         if (compOpt.isPresent()) hostCompany = compOpt.get().getCompany() != null ? compOpt.get().getCompany() : "";
                     }
                 }
             }
-            // Send checkout email to contact person
+            // Send checkout email to contact person (creator)
             if (empEmail != null && !empEmail.isEmpty() && vm.getName() != null) {
                 emailService.sendCheckOutEmailToEmp(empEmail, vm.getName());
             }
-            // Send checkout email to visitor (no OTP for direct check-ins)
+            // Send checkout email to visitor
             if (visitorEmail != null && !visitorEmail.isEmpty() && vm.getName() != null) {
                 if (Boolean.TRUE.equals(vm.getDirectCheckIn())) {
                     emailService.sendDirectCheckOutEmailToVisitor(visitorEmail, vm.getName(), hostCompany);
@@ -1054,12 +1068,13 @@ public class VisitorService {
                     emailService.sendCheckOutEmailToVisitor(visitorEmail, vm.getName(), CheckoutCode, hostCompany);
                 }
             }
+            // Notify creator
             if (vm.getCreatedBy() != null && vm.getName() != null) {
                 notificationService.createNotification(vm.getCreatedBy(), "Visitor Checked Out",
                     vm.getName() + " has checked out.", "checkout", vm.getVisitId());
             }
-            if (Boolean.TRUE.equals(vm.getDirectCheckIn()) && vm.getWhomToMeet() != null
-                && !vm.getWhomToMeet().equals(vm.getCreatedBy()) && vm.getName() != null) {
+            // Notify the host (WhomToMeet) if different from creator
+            if (vm.getWhomToMeet() != null && !vm.getWhomToMeet().equals(vm.getCreatedBy()) && vm.getName() != null) {
                 notificationService.createNotification(vm.getWhomToMeet(), "Visitor Checked Out",
                     vm.getName() + " has checked out.", "checkout", vm.getVisitId());
                 Optional<EmployeeMaster> contactOpt = employeeRepo.findById(vm.getWhomToMeet());
@@ -1354,6 +1369,18 @@ public class VisitorService {
                 notificationService.createNotification(vm.getCreatedBy(), "Visitor Checked In",
                     vm.getName() + " has checked in.", "checkin", vm.getVisitId());
             }
+            // Notify the host (WhomToMeet) if different from creator
+            if (vm.getWhomToMeet() != null && !vm.getWhomToMeet().equals(vm.getCreatedBy()) && vm.getName() != null) {
+                notificationService.createNotification(vm.getWhomToMeet(), "Visitor Checked In",
+                    vm.getName() + " has checked in and is ready to meet you.", "checkin", vm.getVisitId());
+                Optional<EmployeeMaster> contactOpt = employeeRepo.findById(vm.getWhomToMeet());
+                if (contactOpt.isPresent()) {
+                    String contactEmail = contactOpt.get().getEmailId();
+                    if (contactEmail != null && !contactEmail.isEmpty() && !contactEmail.equals(empEmail)) {
+                        emailService.sendCheckInEmailToEmp(contactEmail, vm.getName());
+                    }
+                }
+            }
         } catch (Exception e) {
             log.error("Error in visitor service operation", e);
         }
@@ -1432,6 +1459,18 @@ public class VisitorService {
             if (vm.getCreatedBy() != null && vm.getName() != null) {
                 notificationService.createNotification(vm.getCreatedBy(), "Visitor Checked Out",
                     vm.getName() + " has checked out.", "checkout", vm.getVisitId());
+            }
+            // Notify the host (WhomToMeet) if different from creator
+            if (vm.getWhomToMeet() != null && !vm.getWhomToMeet().equals(vm.getCreatedBy()) && vm.getName() != null) {
+                notificationService.createNotification(vm.getWhomToMeet(), "Visitor Checked Out",
+                    vm.getName() + " has checked out.", "checkout", vm.getVisitId());
+                Optional<EmployeeMaster> contactOpt = employeeRepo.findById(vm.getWhomToMeet());
+                if (contactOpt.isPresent()) {
+                    String contactEmail = contactOpt.get().getEmailId();
+                    if (contactEmail != null && !contactEmail.isEmpty() && !contactEmail.equals(empEmail)) {
+                        emailService.sendCheckOutEmailToEmp(contactEmail, vm.getName());
+                    }
+                }
             }
         } catch (Exception e) {
             log.error("Error in visitor service operation", e);
@@ -1643,6 +1682,18 @@ public class VisitorService {
             if (vm.getCreatedBy() != null && vm.getName() != null) {
                 notificationService.createNotification(vm.getCreatedBy(), "Visitor Checked In",
                     vm.getName() + " has checked in.", "checkin", vm.getVisitId());
+            }
+            // Notify the host (WhomToMeet) if different from creator
+            if (vm.getWhomToMeet() != null && !vm.getWhomToMeet().equals(vm.getCreatedBy()) && vm.getName() != null) {
+                notificationService.createNotification(vm.getWhomToMeet(), "Visitor Checked In",
+                    vm.getName() + " has checked in and is ready to meet you.", "checkin", vm.getVisitId());
+                Optional<EmployeeMaster> contactOpt = employeeRepo.findById(vm.getWhomToMeet());
+                if (contactOpt.isPresent()) {
+                    String contactEmail = contactOpt.get().getEmailId();
+                    if (contactEmail != null && !contactEmail.isEmpty() && !contactEmail.equals(empEmail)) {
+                        emailService.sendCheckInEmailToEmp(contactEmail, vm.getName());
+                    }
+                }
             }
         } catch (Exception e) {
             log.error("Error sending check-in notifications", e);

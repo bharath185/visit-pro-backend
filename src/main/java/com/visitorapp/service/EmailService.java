@@ -283,21 +283,18 @@ public class EmailService {
             MimeMessageHelper helper = new MimeMessageHelper(msg, true, "UTF-8");
             helper.setTo(empEmail);
             if (sender.getUsername() != null) helper.setFrom(sender.getUsername());
-            helper.setSubject("Visit Approval Request - " + visitorName);
-
-            String approveLink = baseUrl + "/approve-visit?id=" + visitId;
+            helper.setSubject("Portal Visit Update - " + visitorName);
 
             StringBuilder b = new StringBuilder();
-            b.append(EmailTemplateBuilder.heading("Visit Approval Request"));
-            b.append(EmailTemplateBuilder.text("<b>" + visitorName + "</b> wants to visit <b>" + companyName + "</b> and is requesting to meet you."));
+            b.append(EmailTemplateBuilder.heading("Portal Visit Update"));
+            b.append(EmailTemplateBuilder.text("<b>" + visitorName + "</b> from <b>" + companyName + "</b> has requested to meet you."));
             b.append(EmailTemplateBuilder.divider());
             b.append(EmailTemplateBuilder.infoRow("Visitor", visitorName));
             b.append(EmailTemplateBuilder.infoRow("Company", companyName));
             b.append(EmailTemplateBuilder.divider());
-            b.append(EmailTemplateBuilder.text("Please approve this visit request:"));
-            b.append(EmailTemplateBuilder.button(approveLink, "APPROVE"));
+            b.append(EmailTemplateBuilder.text("Please log in to the visitor portal to review and take action on this visit request."));
 
-            helper.setText(EmailTemplateBuilder.wrap("Approval Request", b.toString()), true);
+            helper.setText(EmailTemplateBuilder.wrap("Portal Visit Update", b.toString()), true);
             sender.send(msg);
         } catch (Exception e) {
             log.error("Email send failed", e);

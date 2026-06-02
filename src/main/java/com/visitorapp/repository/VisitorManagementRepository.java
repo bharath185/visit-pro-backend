@@ -75,4 +75,6 @@ public interface VisitorManagementRepository extends JpaRepository<VisitorManage
 
     @Query("SELECT v FROM VisitorManagement v WHERE v.plantId = :plantId AND v.whomToMeet = :whomToMeet AND v.directCheckIn = true AND v.isDeleted = false ORDER BY v.visitDate DESC")
     List<VisitorManagement> findDirectCheckInsByPlantAndContact(@Param("plantId") Integer plantId, @Param("whomToMeet") Integer whomToMeet);
+
+    VisitorManagement findTopByMobileAndIsDeletedFalseOrderByCreatedDateDesc(String mobile);
 }
