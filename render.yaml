@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: visit-pro-backend
+    env: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 8081
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        sync: false
+      - key: SPRING_DATASOURCE_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: SEED_ADMIN_USERNAME
+        value: ADMIN
+      - key: SEED_ADMIN_PASSWORD
+        value: Admin@123
+      - key: SEED_ADMIN_EMAIL
+        value: admin@company.com

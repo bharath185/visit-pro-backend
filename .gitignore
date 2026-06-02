@@ -1,0 +1,14 @@
+target/
+*.jar
+*.war
+*.original
+.mvn/
+mvnw
+mvnw.cmd
+.idea/
+*.iml
+*.log
+*.err
+*.db
+.DS_Store
+test-*.json
